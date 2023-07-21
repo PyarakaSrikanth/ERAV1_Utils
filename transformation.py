@@ -21,9 +21,9 @@ def get_train_aug_transform(mu, sigma):
                                       max_w_size=8, 
                                       
                                       #fill_value=[0.4914*255, 0.4822*255, 0.4471*255], 
-                                      fill_value=(mu))
+                                      fill_value=(mu),
                                       always_apply=True,
-                                      p=(0.50),   
+                                      p=0.50),   
                              A.ToGray()   
                              ToTensorV2(),
 ])
