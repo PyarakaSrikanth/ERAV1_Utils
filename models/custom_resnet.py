@@ -6,7 +6,7 @@ import torchvision.transforms as transforms
 
 class CustomRes_Network(nn.Module):
   def __init__(self):
-    super(CustomRes_Network).__init__()
+    super(CustomRes_Network,self).__init__()
     self.prep = nn.Sequential(
         nn.Conv2d(3, 64 , 3 , 1 ,1),
         nn.ReLU(),
