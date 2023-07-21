@@ -22,7 +22,8 @@ test_incorrect_pred = {'images': [], 'ground_truths': [], 'predicted_vals': []}
 def GetCorrectPredCount(pPrediction, pLabels):
   return pPrediction.argmax(dim=1).eq(pLabels).sum().item()
 
-def train(model, device, train_loader, optimizer):
+def train(model, device, train_loader, optimizer, criterion):
+
   model.train()
   pbar = tqdm(train_loader)
 
@@ -38,7 +39,7 @@ def train(model, device, train_loader, optimizer):
     pred = model(data)
 
     # Calculate loss
-    loss = F.nll_loss(pred, target)
+    loss = criterion(pred, target)
     train_loss+=loss.item()
 
     # Backpropagation
@@ -52,8 +53,9 @@ def train(model, device, train_loader, optimizer):
 
   train_acc.append(100*correct/processed)
   train_losses.append(train_loss/len(train_loader))
+  #return train_acc,train_losses 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, criterion):
     model.eval()
 
     test_loss = 0
@@ -64,7 +66,7 @@ def test(model, device, test_loader):
             data, target = data.to(device), target.to(device)
 
             output = model(data)
-            test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
+            test_loss += criterion(output, target, reduction='sum').item()  # sum up batch loss
 
             correct += GetCorrectPredCount(output, target)
 
@@ -76,11 +78,7 @@ def test(model, device, test_loader):
     print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
-     
-
-
-# Code Block 11:
-
+    #return test_acc,test_losses      
 def plot_curves():
   fig, axs = plt.subplots(2,2,figsize=(15,10))
   axs[0, 0].plot(train_losses)
@@ -259,7 +257,7 @@ def get_train_loader(transform=None):
   else:
     trainset = Cifar10Dataset(root="~/data/cifar10", train=True, 
                                     download=True)
-  trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
+  trainloader = torch.utils.data.DataLoader(trainset, batch_size=512,
                                             shuffle=True, num_workers=2)
   return(trainloader)
 
@@ -275,7 +273,7 @@ def get_test_loader(transform=None):
     testset = Cifar10Dataset(transform=transform, train=False)
   else:
     testset = Cifar10Dataset(train=False)
-  testloader = torch.utils.data.DataLoader(testset, batch_size=128, 
+  testloader = torch.utils.data.DataLoader(testset, batch_size=512, 
                                          shuffle=False, num_workers=2)
 
   return(testloader)
