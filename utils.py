@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm import tqdm
 import numpy as np
 from data import Cifar10Dataset
@@ -17,301 +18,144 @@ test_acc = []
 
 test_incorrect_pred = {'images': [], 'ground_truths': [], 'predicted_vals': []}
 
+class Trainer:
+    def __init__(self, model, train_loader, optimizer, criterion, device) -> None:
+        self.train_losses = []
+        self.train_accuracies = []
+        self.epoch_train_accuracies = []
+        self.model = model.to(device)
+        self.train_loader = train_loader
+        self.optimizer = optimizer
+        self.criterion = criterion
+        self.device = device
+        self.lr_history = []
 
+    def train(self, epoch, scheduler=None, use_l1=False, lambda_l1=0.01):
+        self.model.train()
+
+        lr_trend = []
+        correct = 0
+        processed = 0
+        train_loss = 0
+
+        pbar = tqdm(self.train_loader)
+
+        for batch_id, (inputs, targets) in enumerate(pbar):
+            # transfer to device
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+            # Initialize gradients to 0
+            self.optimizer.zero_grad()
+
+            # Prediction
+            outputs = self.model(inputs)
+
+            # Calculate loss
+            loss = self.criterion(outputs, targets)
+
+            l1 = 0
+            if use_l1:
+                for p in self.model.parameters():
+                    l1 = l1 + p.abs().sum()
+            loss = loss + lambda_l1 * l1
+
+            self.train_losses.append(loss.item())
+
+            # Backpropagation
+            loss.backward()
+            self.optimizer.step()
+
+            # updating LR
+            if scheduler:
+                if not isinstance(scheduler, ReduceLROnPlateau):
+                    scheduler.step()
+                    lr_trend.append(scheduler.get_last_lr()[0])
+
+            pred = outputs.argmax(dim=1, keepdim=True)
+            correct += pred.eq(targets.view_as(pred)).sum().item()
+            processed += len(inputs)
+
+            pbar.set_description(
+                desc=f"EPOCH = {epoch} | LR = {self.optimizer.param_groups[0]['lr']} | Loss = {loss.item():3.2f} | Batch = {batch_id} | Accuracy = {100*correct/processed:0.2f}"
+            )
+            self.train_accuracies.append(100 * correct / processed)
+
+        # After all the batches are done, append accuracy for epoch
+        self.epoch_train_accuracies.append(100 * correct / processed)
+
+        self.lr_history.extend(lr_trend)
+        return 100 * correct / processed, train_loss / (batch_id + 1), lr_trend
+
+class Tester:
+    def __init__(self, model, test_loader, criterion, device) -> None:
+        self.test_losses = []
+        self.test_accuracies = []
+        self.model = model.to(device)
+        self.test_loader = test_loader
+        self.criterion = criterion
+        self.device = device
+
+    def test(self):
+        self.model.eval()
+
+        test_loss = 0
+        correct = 0
+
+        with torch.no_grad():
+            for inputs, targets in self.test_loader:
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                output = self.model(inputs)
+                loss = self.criterion(output, targets)
+
+                test_loss += loss.item()
+
+                pred = output.argmax(
+                    dim=1, keepdim=True
+                )  # get the index of the max log-probability
+                correct += pred.eq(targets.view_as(pred)).sum().item()
+
+        test_loss /= len(self.test_loader.dataset)
+        self.test_losses.append(test_loss)
+
+        print(
+            "Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)".format(
+                test_loss,
+                correct,
+                len(self.test_loader.dataset),
+                100.0 * correct / len(self.test_loader.dataset),
+            )
+        )
+
+        self.test_accuracies.append(100.0 * correct / len(self.test_loader.dataset))
+
+        return 100.0 * correct / len(self.test_loader.dataset), test_loss
+
+    def get_misclassified_images(self):
+        self.model.eval()
+
+        images = []
+        predictions = []
+        labels = []
+
+        with torch.no_grad():
+            for data, target in self.test_loader:
+                data, target = data.to(self.device), target.to(self.device)
+
+                output = self.model(data)
+
+                _, preds = torch.max(output, 1)
+
+                for i in range(len(preds)):
+                    if preds[i] != target[i]:
+                        images.append(data[i])
+                        predictions.append(preds[i])
+                        labels.append(target[i])
+
+        return images, predictions, labels
 
 def GetCorrectPredCount(pPrediction, pLabels):
   return pPrediction.argmax(dim=1).eq(pLabels).sum().item()
 
-def trainOneCLR(model, device, train_loader, criterion, scheduler, optimizer, use_l1=False, lambda_l1=0.01):
-    """Function to train the model
-
-    Args:
-        model (instance): torch model instance of defined model
-        device (str): "cpu" or "cuda" device to be used
-        train_loader (instance): Torch Dataloader instance for trainingset
-        criterion (instance): criterion to used for calculating the loss
-        scheduler (function): scheduler to be used
-        optimizer (function): optimizer to be used
-        use_l1 (bool, optional): L1 Regularization method set True to use . Defaults to False.
-        lambda_l1 (float, optional): Regularization parameter of L1. Defaults to 0.01.
-
-    Returns:
-        float: accuracy and loss values
-    """
-    model.train()
-    pbar = tqdm(train_loader)
-    lr_trend = []
-    correct = 0
-    processed = 0
-    train_loss = 0
-
-    for batch_idx, (data, target) in enumerate(pbar):
-        # get samples
-        data, target = data.to(device), target.to(device)
-
-        # Init
-        optimizer.zero_grad()
-        # In PyTorch, we need to set the gradients to zero before starting to do backpropragation because PyTorch 
-        # accumulates the gradients on subsequent backward passes. Because of this, when you start your training loop, 
-        # ideally you should zero out the gradients so that you do the parameter update correctly.
-
-        # Predict
-        y_pred = model(data)
-        # Calculate loss
-        loss = criterion(y_pred, target)
-
-        l1=0
-        if use_l1:
-            for p in model.parameters():
-                l1 = l1 + p.abs().sum()
-        loss = loss + lambda_l1*l1
-
-        # Backpropagation
-        loss.backward()
-        optimizer.step()
-        # updating LR
-        if scheduler:
-            if not isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step()
-                lr_trend.append(scheduler.get_last_lr()[0])
-
-        train_loss += loss.item()
-
-        # Update pbar-tqdm
-        pred = y_pred.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-        correct += pred.eq(target.view_as(pred)).sum().item()
-        processed += len(data)
-        
-
-        pbar.set_description(desc= f'Batch_id={batch_idx} Loss={train_loss/(batch_idx + 1):.5f} Accuracy={100*correct/processed:0.2f}%')
-    return 100*correct/processed, train_loss/(batch_idx + 1), lr_trend
-
-
-def testOneCLR(model, device, test_loader, criterion):
-    """put model in eval mode and test it
-
-    Args:
-        model (instance): torch model instance of defined model
-        device (str): "cpu" or "cuda" device to be used
-        test_loader (instance): Torch Dataloader instance for testset
-        criterion (instance): criterion to used for calculating the loss
-
-    Returns:
-        float: accuracy and loss values
-    """
-    model.eval()
-    test_loss = 0
-    correct = 0
-    #iteration = len(test_loader.dataset)// test_loader.batch_size
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += criterion(output, target).item()  # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader)
-
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
-    return 100. * correct / len(test_loader.dataset), test_loss
-
-
-def save_model(model, epoch, optimizer, path):
-    """Save torch model in .pt format
-
-    Args:
-        model (instace): torch instance of model to be saved
-        epoch (int): epoch num
-        optimizer (instance): torch optimizer
-        path (str): model saving path
-    """
-    state = {
-        'epoch': epoch,
-        'state_dict': model.state_dict(),
-        'optimizer': optimizer.state_dict()
-    }
-    torch.save(state, path)
-def fit_model(net, optimizer, criterion, device, NUM_EPOCHS,train_loader, test_loader, use_l1=False, scheduler=None, save_best=False):
-    """Fit the model
-
-    Args:
-        net (instance): torch model instance of defined model
-        optimizer (function): optimizer to be used
-        criterion (instance): criterion to used for calculating the loss
-        device (str): "cpu" or "cuda" device to be used
-        NUM_EPOCHS (int): number of epochs for model to be trained
-        train_loader (instance): Torch Dataloader instance for trainingset
-        test_loader (instance): Torch Dataloader instance for testset
-        use_l1 (bool, optional): L1 Regularization method set True to use. Defaults to False.
-        scheduler (function, optional): scheduler to be used. Defaults to None.
-        save_best (bool, optional): If save best model to model.pt file, paramater validation loss will be monitered
-
-    Returns:
-        (model, list): trained model and training logs
-    """
-    training_acc, training_loss, testing_acc, testing_loss = list(), list(), list(), list()
-    lr_trend = []
-    if save_best:
-        min_val_loss = np.inf
-        save_path = 'model.pt'
-
-    for epoch in range(1,NUM_EPOCHS+1):
-        print("EPOCH: {} (LR: {})".format(epoch, optimizer.param_groups[0]['lr']))
-        
-        train_acc, train_loss, lr_hist = trainOneCLR(
-            model=net, 
-            device=device, 
-            train_loader=train_loader, 
-            criterion=criterion ,
-            optimizer=optimizer, 
-            use_l1=use_l1, 
-            scheduler=scheduler
-        )
-        test_acc, test_loss = testOneCLR(net, device, test_loader, criterion)
-        # update LR
-        if scheduler:
-            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-                scheduler.step(test_loss)
-        
-        if save_best:
-            if test_loss < min_val_loss:
-                print(f'Valid loss reduced from {min_val_loss:.5f} to {test_loss:.6f}. checkpoint created at...{save_path}\n')
-                save_model(net, epoch, optimizer, save_path)
-                min_val_loss = test_loss
-            else:
-                print(f'Valid loss did not inprove from {min_val_loss:.5f}\n')
-        else:
-            print()
-
-        training_acc.append(train_acc)
-        training_loss.append(train_loss)
-        testing_acc.append(test_acc)
-        testing_loss.append(test_loss)
-        lr_trend.extend(lr_hist)    
-
-    if scheduler:   
-        return net, (training_acc, training_loss, testing_acc, testing_loss, lr_trend)
-    else:
-        return net, (training_acc, training_loss, testing_acc, testing_loss)
-
-class train:
-
-    def __init__(self):
-
-        self.train_losses = []
-        self.train_acc    = []
-
-    # Training
-    def execute(self,net, device, trainloader, optimizer, criterion,epoch):
-
-        #print('Epoch: %d' % epoch)
-        net.train()
-        train_loss = 0
-        correct = 0
-        #total = 0
-        processed = 0
-        pbar = tqdm(trainloader)
-
-        for batch_idx, (inputs, targets) in enumerate(pbar):
-            # get samples
-            inputs, targets = inputs.to(device), targets.to(device)
-
-            # Init
-            optimizer.zero_grad()
-
-            # In PyTorch, we need to set the gradients to zero before starting to do backpropragation because PyTorch accumulates the gradients on subsequent backward passes. 
-            # Because of this, when you start your training loop, ideally you should zero out the gradients so that you do the parameter update correctly.
-
-            # Predict
-            outputs = net(inputs)
-
-            # Calculate loss
-            loss = criterion(outputs, targets)
-
-            # Backpropagation
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
-            self.train_losses.append(loss.item())
-            
-            _, predicted = outputs.max(1)
-            processed += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-
-            pbar.set_description(desc= f'Epoch: {epoch},Loss={loss.item():3.2f} Batch_id={batch_idx} Accuracy={100*correct/processed:0.2f}')
-            self.train_acc.append(100*correct/processed)
-
-
-class test:
-
-    def __init__(self):
-
-        self.test_losses = []
-        self.test_acc    = []
-
-    def execute(self, net, device, testloader, criterion):
-
-        net.eval()
-        test_loss = 0
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for batch_idx, (inputs, targets) in enumerate(testloader):
-                inputs, targets = inputs.to(device), targets.to(device)
-                outputs = net(inputs)
-                loss = criterion(outputs, targets)
-
-                test_loss += loss.item()
-                _, predicted = outputs.max(1)
-                total += targets.size(0)
-                correct += predicted.eq(targets).sum().item()
-
-        test_loss /= len(testloader.dataset)
-        self.test_losses.append(test_loss)
-
-        print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
-            test_loss, correct, len(testloader.dataset),
-            100. * correct / len(testloader.dataset)))
-
-        # Save.
-        self.test_acc.append(100. * correct / len(testloader.dataset))
-
-def trainNetwork(net, device, trainloader, testloader, EPOCHS, lr=0.2):
-
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(net.parameters(), lr, momentum=0.9)
-    scheduler = StepLR(optimizer, step_size=6, gamma=0.1)
-
-    trainObj = train()
-    testObj = test()
-
-    for epoch in range(EPOCHS):  # loop over the dataset multiple times
-
-        trainObj.execute(net, device, trainloader, optimizer, criterion, epoch)
-        testObj.execute(net, device, testloader, criterion)
-        scheduler.step()
-
-    print('Finished Training')
-
-    return trainObj, testObj
-         
-def plot_curves():
-  fig, axs = plt.subplots(2,2,figsize=(15,10))
-  axs[0, 0].plot(train_losses)
-  axs[0, 0].set_title("Training Loss")
-  axs[1, 0].plot(train_acc)
-  axs[1, 0].set_title("Training Accuracy")
-  axs[0, 1].plot(test_losses)
-  axs[0, 1].set_title("Test Loss")
-  axs[1, 1].plot(test_acc)
-  axs[1, 1].set_title("Test Accuracy")
-  plt.show()
-  
-  
 
 def plot_incorrect_prediction(mismatch, n=10 ):
     classes = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']

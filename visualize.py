@@ -115,68 +115,50 @@ def plot_incorrect_predictions(predictions, class_map, count=10):
             break
 
 
-def plot_network_performance(epochs, schedule, train_loss, valid_loss, train_correct, valid_correct):
-    plt.figure(figsize=(15, 5))
+def plot_losses_and_accuracies(trainer, tester, epochs):
+    fig, ax = plt.subplots(2, 2)
 
-    plt.subplot(1, 3, 1)
-    plt.plot(range(epochs), schedule, 'r', label='One Cycle LR')
-    plt.title('Learning Rate')
-    plt.xlabel('Epochs')
-    plt.ylabel('LR')
-    plt.legend()
+    train_epoch_loss_linspace = np.linspace(0, epochs, len(trainer.train_losses))
+    test_epoch_loss_linspace = np.linspace(0, epochs, len(tester.test_losses))
+    train_epoch_acc_linspace = np.linspace(0, epochs, len(trainer.train_accuracies))
+    test_epoch_acc_linspace = np.linspace(0, epochs, len(tester.test_accuracies))
 
-    plt.subplot(1, 3, 2)
-    plt.plot(range(epochs), train_loss, 'g', label='Training loss')
-    plt.plot(range(epochs), valid_loss, 'b', label='Validation loss')
-    plt.title('Training and Validation loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend()
+    ax[0][0].set_xlabel("Epoch")
+    ax[0][0].set_ylabel("Train Loss")
+    ax[0][0].plot(train_epoch_loss_linspace, trainer.train_losses)
+    ax[0][0].tick_params(axis="y", labelleft=True, labelright=True)
 
-    plt.subplot(1, 3, 3)
-    plt.plot(range(epochs), train_correct, 'g', label='Training Accuracy')
-    plt.plot(range(epochs), valid_correct, 'b', label='Validation Accuracy')
-    plt.title('Training and Validation Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.legend()
+    ax[0][1].set_xlabel("Epoch")
+    ax[0][1].set_ylabel("Test Loss")
+    ax[0][1].plot(test_epoch_loss_linspace, tester.test_losses)
+    ax[0][1].tick_params(axis="y", labelleft=True, labelright=True)
 
+    ax[1][0].set_xlabel("Epoch")
+    ax[1][0].set_ylabel("Train Accuracy")
+    ax[1][0].plot(train_epoch_acc_linspace, trainer.train_accuracies)
+    ax[1][0].tick_params(axis="y", labelleft=True, labelright=True)
+    ax[1][0].yaxis.set_ticks(np.arange(0, 101, 5))
+
+    ax[1][1].set_xlabel("Epoch")
+    ax[1][1].set_ylabel("Test Accuracy")
+    ax[1][1].plot(test_epoch_acc_linspace, tester.test_accuracies)
+    ax[1][1].tick_params(axis="y", labelleft=True, labelright=True)
+    ax[1][1].yaxis.set_ticks(np.arange(0, 101, 5))
+
+    fig.set_size_inches(30, 10)
     plt.tight_layout()
     plt.show()
+def plot_lr_history(trainer, epochs):
+    fig, ax = plt.subplots()
 
+    linspace = np.linspace(0, epochs, len(trainer.lr_history))
 
-def plot_model_comparison(trainers, epochs):
-    """Plot comparison charts for models
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Learning Rate")
+    ax.plot(linspace, trainer.lr_history)
+    ax.tick_params(axis="y", labelleft=True, labelright=True)
 
-    Args:
-        trainers (list): List or all trainers for different experiments
-        epochs (int): Number or training loops
-    """
-    plt.figure(figsize=(15, 5))
-
-    plt.subplot(1, 2, 1)
-    plt.plot(range(epochs),
-             trainers[0].list_valid_loss, 'b', label='BN + L1 loss')
-    plt.plot(range(epochs), trainers[1].list_valid_loss, 'r', label='GN loss')
-    plt.plot(range(epochs), trainers[2].list_valid_loss, 'm', label='LN loss')
-    plt.title('Validation losses')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend()
-
-    plt.subplot(1, 2, 2)
-    plt.plot(range(epochs),
-             trainers[0].list_valid_correct, 'b', label='BN + L1 Accuracy')
-    plt.plot(range(epochs),
-             trainers[1].list_valid_correct, 'r', label='GN Accuracy')
-    plt.plot(range(epochs),
-             trainers[2].list_valid_correct, 'm', label='LN Accuracy')
-    plt.title('Validation Accuracies')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.legend()
-
+    # fig.set_size_inches(30, 10)
     plt.tight_layout()
-    plt.show()
-
+    plt.show()    
    

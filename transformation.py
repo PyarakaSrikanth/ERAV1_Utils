@@ -19,12 +19,11 @@ def get_train_aug_transform(mu, sigma):
                              A.Cutout(num_holes=1, 
                                       max_h_size=8,
                                       max_w_size=8, 
-                                      
-                                      #fill_value=[0.4914*255, 0.4822*255, 0.4471*255], 
                                       fill_value=(mu),
+                                      #fill_value=[0.4914*255, 0.4822*255, 0.4471*255], 
                                       always_apply=True,
                                       p=0.50),   
-                             A.ToGray(),   
+                             A.ToGray(),         
                              ToTensorV2(),
 ])
 
