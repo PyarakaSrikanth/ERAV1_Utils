@@ -9,19 +9,20 @@ def get_train_aug_transform(mu, sigma):
     Returns:
         Tensor: Normalized image.
     """
+    
+
     train_transform = A.Compose([
-                             A.HorizontalFlip(p=0.4),
-                             A.ShiftScaleRotate(),
+                             A.RandomCrop(32,32), 
+                             A.HorizontalFlip(p=0.5),
                              A.Normalize(mean=(mu), 
                                          std=(sigma)),
-                             A.CoarseDropout(max_holes=1, 
-                                             max_height=16, 
-                                             max_width=16, 
-                                             min_holes=1, 
-                                             min_height=16,
-                                             min_width=16,
-                                             fill_value=(mu)),
-                             A.ToGray(),
+                             A.Cutout(num_holes=1, 
+                                      max_h_size=8,
+                                      max_w_size=8, 
+                                      #fill_value=[mu]
+                                      fill_value=[0.4914*255, 0.4822*255, 0.4471*255], 
+                                      always_apply=True,
+                                      p=0.50),   
                              ToTensorV2(),
 ])
 
