@@ -12,17 +12,18 @@ def get_train_aug_transform(mu, sigma):
     
 
     train_transform = A.Compose([
+                             A.PadIfNeeded(min_height=40, min_width=40, always_apply=True),
                              A.RandomCrop(32,32), 
-                             A.HorizontalFlip(p=0.5),
+                             #A.HorizontalFlip(p=0.5),
                              A.Normalize(mean=(mu), 
                                          std=(sigma)),
                              A.Cutout(num_holes=1, 
-                                      max_h_size=8,
-                                      max_w_size=8, 
+                                      max_h_size=16,
+                                      max_w_size=16, 
                                       fill_value=(mu),
                                       #fill_value=[0.4914*255, 0.4822*255, 0.4471*255], 
                                       always_apply=True,
-                                      p=0.50),   
+                                      p=1),   
                              A.ToGray(),         
                              ToTensorV2(),
 ])
