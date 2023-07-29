@@ -4,6 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
+from functools import reduce
+from typing import Union
 from tqdm import tqdm
 import numpy as np
 from data import Cifar10Dataset
@@ -375,21 +380,74 @@ def get_device():
 
   return(device)
 
-class DeNorm:
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+def get_layers(module: Union[torch.Tensor, nn.Module], access_string: str):
+    """Retrieve a module nested in another by its access string.
 
-    def __call__(self, tensor):
-        '''
-        UnNormalizes an image given its mean and standard deviation
-        Args:
-            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-        Returns:
-            Tensor: Normalized image.
-        '''
-        for t, m, s in zip(tensor, self.mean, self.std):
-            t.mul_(s).add_(m)
-            # The normalize code -> t.sub_(m).div_(s)
-        return tensor
+    Works even when there is a Sequential in the module.
+    """
+    names = access_string.split(sep=".")
+    return reduce(getattr, names, module)
  
+def plot_grad_cam(
+    model,
+    device,
+    images,
+    labels,
+    predictions,
+    target_layer,
+    classes,
+    use_cuda=True,
+):
+    """
+    model = model,
+    device = device,
+    images = input images
+    labels = correct classes for the images
+    predictions = predictions for the images. If the desired gradcam is for the correct classes, pass labels here.
+    target_layer = string representation of layer e.g. "layer3.1.conv2"
+    classes = list of class labels
+    """
+    target_layers = [get_layers(model, target_layer)]
+
+    cam = GradCAM(model=model, target_layers=target_layers, use_cuda=use_cuda)
+
+    fig = plt.figure(figsize=(32, 32))
+
+    plot_idx = 1
+    for i in range(len(images)):
+        input_tensor = images[i].unsqueeze(0).to(device)
+        targets = [ClassifierOutputTarget(predictions[i])]
+        rgb_img = denorm(images[i].cpu().numpy().squeeze())
+        grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
+        grayscale_cam = grayscale_cam[0, :]
+        visualization = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+
+        # Layout = 6 images per row - 2 * (original image, gradcam and visualization)
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(rgb_img, cmap="gray")
+        ax.set_title("True class: {}".format(classes[labels[i]]))
+        plot_idx += 1
+
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(grayscale_cam, cmap="gray")
+        ax.set_title("GradCAM Output\nTarget class: {}".format(classes[predictions[i]]))
+        plot_idx += 1
+
+        ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
+        ax.imshow(visualization, cmap="gray")
+        ax.set_title("Visualization\nTarget class: {}".format(classes[predictions[i]]))
+        plot_idx += 1
+
+    plt.tight_layout()
+    plt.show()
+
+
+def denorm(img):
+    channel_means = (0.4914, 0.4822, 0.4465)
+    channel_stdevs = (0.2470, 0.2435, 0.2616)
+    img = img.astype(dtype=np.float32)
+
+    for i in range(img.shape[0]):
+        img[i] = (img[i] * channel_stdevs[i]) + channel_means[i]
+
+    return np.transpose(img, (1, 2, 0))
