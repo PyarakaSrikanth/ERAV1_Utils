@@ -430,12 +430,12 @@ def plot_grad_cam(
 
         ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
         ax.imshow(grayscale_cam, cmap="gray")
-        ax.set_title("GradCAM Output\nTarget class: {}".format(classes[predictions[i]]))
+        ax.set_title("GradCAM Output\nPredict class: {}".format(classes[predictions[i]]))
         plot_idx += 1
 
         ax = fig.add_subplot(len(images) // 2, 6, plot_idx, xticks=[], yticks=[])
         ax.imshow(visualization, cmap="gray")
-        ax.set_title("Visualization\nTarget class: {}".format(classes[predictions[i]]))
+        ax.set_title("Visualization\nPredict class: {}".format(classes[predictions[i]]))
         plot_idx += 1
 
     plt.tight_layout()
